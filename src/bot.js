@@ -550,7 +550,7 @@ client.login(process.env.DISCORD_TOKEN).catch((error) => {
   console.error('🚫 Discord login error:', error.message);
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+const PORT = process.env.PORT || 10000;  // Render default
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Webhook server running on port ${PORT}`);
 });
