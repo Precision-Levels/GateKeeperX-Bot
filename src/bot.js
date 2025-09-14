@@ -23,8 +23,7 @@ const UserSchema = new mongoose.Schema({
 });
 const User = mongoose.model('User', UserSchema);
 
-
-// Load or initialize verified users from JSON file
+// Load or initialize verified users from JSON file (fallback)
 let verifiedUsers = {};
 const VERIFIED_USERS_FILE = './verifiedUsers.json';
 
@@ -117,55 +116,63 @@ client.on('interactionCreate', async (interaction) => {
   const userId = interaction.user.id;
 
   if (interaction.commandName === 'verify') {
-    verifiedUsers[email] = userId;  // Keep for fallback if needed
-await User.findOneAndUpdate(
-  { email },
-  { email, discordId: userId },
-  { upsert: true }
-);
-await saveVerifiedUsers();  // Keep if using file too
-try {
-  await interaction.reply({
-    content: `✅ Verified! Your Discord account is now linked to ${email}. Run /checkpayment to activate your role if you already paid.`,
-    flags: 64,
-  });
-} catch (error) {
-  console.error('Reply error in /verify:', error.message);
-}
-console.log(`🔗 Linked ${email} to Discord user ${interaction.user.tag}`);
+    // Update MongoDB
+    await User.findOneAndUpdate(
+      { email },
+      { email, discordId: userId },
+      { upsert: true }
+    );
+    // Fallback to file
+    verifiedUsers[email] = userId;
+    await saveVerifiedUsers();
+
+    try {
+      await interaction.reply({
+        content: `✅ Verified! Your Discord account is now linked to ${email}. Run /checkpayment to activate your role if you already paid.`,
+        flags: 64,
+      });
+    } catch (error) {
+      console.error('Reply error in /verify:', error.message);
+    }
+
+    console.log(`🔗 Linked ${email} to Discord user ${interaction.user.tag}`);
   }
 
   if (interaction.commandName === 'unverify') {
-   if (verifiedUsers[email] === userId) {
-  await User.findOneAndDelete({ email, discordId: userId });
-  delete verifiedUsers[email];
-  await saveVerifiedUsers();  // Keep if using file too
-  try {
-    await interaction.reply({
-      content: `🧹 Unlinked ${email} from your Discord account.`,
-      flags: 64,
-    });
-  } catch (error) {
-    console.error('Reply error in /unverify:', error.message);
+    if (verifiedUsers[email] === userId) {
+      // Update MongoDB
+      await User.findOneAndDelete({ email, discordId: userId });
+      // Fallback to file
+      delete verifiedUsers[email];
+      await saveVerifiedUsers();
+
+      try {
+        await interaction.reply({
+          content: `🧹 Unlinked ${email} from your Discord account.`,
+          flags: 64,
+        });
+      } catch (error) {
+        console.error('Reply error in /unverify:', error.message);
+      }
+      console.log(`🔓 Unlinked ${email} from ${interaction.user.tag}`);
+    } else {
+      try {
+        await interaction.reply({
+          content: `⚠️ That email isn't linked to your account.`,
+          flags: 64,
+        });
+      } catch (error) {
+        console.error('Reply error in /unverify else:', error.message);
+      }
+    }
   }
-  console.log(`🔓 Unlinked ${email} from ${interaction.user.tag}`);
-} else {
-  try {
-    await interaction.reply({
-      content: `⚠️ That email isn’t linked to your account.`,
-      flags: 64,
-    });
-  } catch (error) {
-    console.error('Reply error in /unverify else:', error.message);
-  }
-}  }
 
   if (interaction.commandName === 'checkpayment') {
     if (verifiedUsers[email] !== userId) {
       try {
         await interaction.reply({
-          content: `⚠️ That email isn’t verified with your account. Run /verify first.`,
-          flags: 64,  // Ephemeral reply
+          content: `⚠️ That email isn't verified with your account. Run /verify first.`,
+          flags: 64,
         });
       } catch (error) {
         console.error('Reply error in /checkpayment if:', error.message);
@@ -179,7 +186,7 @@ console.log(`🔗 Linked ${email} to Discord user ${interaction.user.tag}`);
         try {
           await interaction.reply({
             content: `⚠️ No Stripe customer found for ${email}. Ensure you used this email for payment.`,
-            flags: 64,  // Ephemeral reply
+            flags: 64,
           });
         } catch (error) {
           console.error('Reply error in /checkpayment no customer:', error.message);
@@ -211,7 +218,7 @@ console.log(`🔗 Linked ${email} to Discord user ${interaction.user.tag}`);
         try {
           await interaction.reply({
             content: `⚠️ No active subscription or completed payment found for ${email}.`,
-            flags: 64,  // Ephemeral reply
+            flags: 64,
           });
         } catch (error) {
           console.error('Reply error in /checkpayment no payment:', error.message);
@@ -225,7 +232,7 @@ console.log(`🔗 Linked ${email} to Discord user ${interaction.user.tag}`);
         try {
           await interaction.reply({
             content: '⚠️ Server error. Please contact support.',
-            flags: 64,  // Ephemeral reply
+            flags: 64,
           });
         } catch (error) {
           console.error('Reply error in /checkpayment guild:', error.message);
@@ -237,7 +244,7 @@ console.log(`🔗 Linked ${email} to Discord user ${interaction.user.tag}`);
       try {
         await interaction.reply({
           content: `✅ Payment verified! Member role assigned.`,
-          flags: 64,  // Ephemeral reply
+          flags: 64,
         });
       } catch (error) {
         console.error('Reply error in /checkpayment success:', error.message);
@@ -247,7 +254,7 @@ console.log(`🔗 Linked ${email} to Discord user ${interaction.user.tag}`);
       try {
         await interaction.reply({
           content: '⚠️ Error checking payment. Please try again or contact support.',
-          flags: 64,  // Ephemeral reply
+          flags: 64,
         });
       } catch (error) {
         console.error('Reply error in /checkpayment catch:', error.message);
@@ -426,12 +433,11 @@ app.post('/webhook', async (req, res) => {
 // Helper function to assign role
 async function assignRole(email, guild) {
   const user = await User.findOne({ email });
-const userId = user?.discordId;
-if (!userId) {
-  console.warn(`⚠️ No verified Discord user for email: ${email}`);
-  return;
-}
-// ... rest of the function stays the same
+  const userId = user?.discordId;
+  if (!userId) {
+    console.warn(`⚠️ No verified Discord user for email: ${email}`);
+    return;
+  }
 
   try {
     const member = await guild.members.fetch(userId);
@@ -464,7 +470,8 @@ if (!userId) {
 
 // Helper function for failed payments (role removal only)
 async function handleFailedPayment(email, guild) {
-  const userId = verifiedUsers[email];
+  const user = await User.findOne({ email });
+  const userId = user?.discordId;
   if (!userId) {
     console.warn(`⚠️ No verified Discord user for email: ${email}`);
     return;
@@ -498,7 +505,7 @@ async function handleFailedPayment(email, guild) {
     // Notify user via DM
     try {
       await member.send(
-        `Your payment for ${email} failed or your subscription was canceled. Your Member role has been removed, and you’ve lost access to private channels. Update your payment method in Stripe and run /checkpayment to restore access.`
+        `Your payment for ${email} failed or your subscription was canceled. Your Member role has been removed, and you've lost access to private channels. Update your payment method in Stripe and run /checkpayment to restore access.`
       );
       console.log(`📩 Sent DM to ${member.user.tag} about role removal`);
     } catch (err) {
@@ -511,7 +518,8 @@ async function handleFailedPayment(email, guild) {
 
 // Helper function to remove role (unchanged, kept for reference)
 async function removeRole(email, guild) {
-  const userId = verifiedUsers[email];
+  const user = await User.findOne({ email });
+  const userId = user?.discordId;
   if (!userId) {
     console.warn(`⚠️ No verified Discord user for email: ${email}`);
     return;
