@@ -272,6 +272,11 @@ app.use(
   })
 );
 
+// Add this new endpoint
+app.get('/health', (req, res) => res.status(200).send('OK'));
+
+
+// ... existing webhook code
 app.post('/webhook', async (req, res) => {
   const sig = req.headers['stripe-signature'];
 
