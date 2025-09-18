@@ -1,9 +1,55 @@
+const winston = require('winston');
+const nodemailer = require('nodemailer');
 require('dotenv').config();
 process.env.NODE_ENV = process.env.NODE_ENV || 'production';
 if (process.env.NODE_ENV === 'production') {
   console.log('Running in production mode');
   // Add any other production-specific code here if needed
 }
+
+// Configure Winston logger
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.json()
+  ),
+  transports: [
+    new winston.transports.File({
+      filename: 'bot.log',
+      maxsize: 5242880, // 5MB
+      maxFiles: 5,
+      tailable: true,
+    }),
+    new winston.transports.Console(),
+  ],
+});
+
+// Override console.log/error with logger
+console.log = (...args) => logger.info(args.join(' '));
+console.error = (...args) => logger.error(args.join(' '));
+
+// Configure email alerts
+const transporter = nodemailer.createTransport({
+  service: 'gmail', // Use your email service (e.g., Gmail, Outlook)
+  auth: {
+    user: process.env.EMAIL_USER, // Add to .env
+    pass: process.env.EMAIL_PASS, // Add app-specific password to .env
+  },
+});
+
+function sendAlert(subject, message) {
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: process.env.EMAIL_USER, // Or another alert email
+    subject,
+    text: message,
+  };
+  transporter.sendMail(mailOptions, (err) => {
+    if (err) logger.error(`🚫 Email alert failed: ${err.message}`);
+  });
+}
+
 const { Client, GatewayIntentBits, Events } = require('discord.js');
 const express = require('express');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
@@ -12,9 +58,10 @@ const fs = require('fs').promises;
 const app = express();
 
 mongoose.connect(process.env.MONGODB_URI).then(() => {
-  console.log('✅ Connected to MongoDB');
+  logger.info('✅ Connected to MongoDB');
 }).catch((err) => {
-  console.error('🚫 MongoDB connection error:', err.message);
+  logger.error('🚫 MongoDB connection error:', err.message);
+  sendAlert('MongoDB Connection Failed', `Error: ${err.message}`);
 });
 
 const UserSchema = new mongoose.Schema({
@@ -32,7 +79,7 @@ async function loadVerifiedUsers() {
     const data = await fs.readFile(VERIFIED_USERS_FILE, 'utf8');
     verifiedUsers = JSON.parse(data);
   } catch (err) {
-    console.log('ℹ️ No existing verified users file, starting fresh');
+    logger.info('ℹ️ No existing verified users file, starting fresh');
     await saveVerifiedUsers();
   }
 }
@@ -55,7 +102,7 @@ const client = new Client({
 });
 
 client.once(Events.ClientReady, c => {
-  console.log(`✅ Logged in as ${c.user.tag}`);
+  logger.info(`✅ Logged in as ${c.user.tag}`);
   loadVerifiedUsers();  // Load verified users inside ready event
 
   try {
@@ -107,9 +154,9 @@ client.once(Events.ClientReady, c => {
       process.env.GUILD_ID
     );
 
-    console.log('📎 /verify, /unverify, and /checkpayment commands registered');
+    logger.info('📎 /verify, /unverify, and /checkpayment commands registered');
   } catch (err) {
-    console.error('❌ Error registering commands:', err.message);
+    logger.error('❌ Error registering commands:', err.message);
   }
 });
 
@@ -135,10 +182,10 @@ client.on('interactionCreate', async (interaction) => {
         flags: 64,
       });
     } catch (error) {
-      console.error('Reply error in /verify:', error.message);
+      logger.error('Reply error in /verify:', error.message);
     }
 
-    console.log(`🔗 Linked ${email} to Discord user ${interaction.user.tag}`);
+    logger.info(`🔗 Linked ${email} to Discord user ${interaction.user.tag}`);
   }
 
   if (interaction.commandName === 'unverify') {
@@ -154,9 +201,9 @@ client.on('interactionCreate', async (interaction) => {
           flags: 64,
         });
       } catch (error) {
-        console.error('Reply error in /unverify:', error.message);
+        logger.error('Reply error in /unverify:', error.message);
       }
-      console.log(`🔓 Unlinked ${email} from ${interaction.user.tag}`);
+      logger.info(`🔓 Unlinked ${email} from ${interaction.user.tag}`);
     } else {
       try {
         await interaction.reply({
@@ -164,7 +211,7 @@ client.on('interactionCreate', async (interaction) => {
           flags: 64,
         });
       } catch (error) {
-        console.error('Reply error in /unverify else:', error.message);
+        logger.error('Reply error in /unverify else:', error.message);
       }
     }
   }
@@ -177,7 +224,7 @@ client.on('interactionCreate', async (interaction) => {
           flags: 64,
         });
       } catch (error) {
-        console.error('Reply error in /checkpayment if:', error.message);
+        logger.error('Reply error in /checkpayment if:', error.message);
       }
       return;
     }
@@ -191,7 +238,7 @@ client.on('interactionCreate', async (interaction) => {
             flags: 64,
           });
         } catch (error) {
-          console.error('Reply error in /checkpayment no customer:', error.message);
+          logger.error('Reply error in /checkpayment no customer:', error.message);
         }
         return;
       }
@@ -223,21 +270,21 @@ client.on('interactionCreate', async (interaction) => {
             flags: 64,
           });
         } catch (error) {
-          console.error('Reply error in /checkpayment no payment:', error.message);
+          logger.error('Reply error in /checkpayment no payment:', error.message);
         }
         return;
       }
 
       const guild = client.guilds.cache.get(process.env.GUILD_ID);
       if (!guild) {
-        console.error('❌ Guild not found. Check GUILD_ID in .env');
+        logger.error('❌ Guild not found. Check GUILD_ID in .env');
         try {
           await interaction.reply({
             content: '⚠️ Server error. Please contact support.',
             flags: 64,
           });
         } catch (error) {
-          console.error('Reply error in /checkpayment guild:', error.message);
+          logger.error('Reply error in /checkpayment guild:', error.message);
         }
         return;
       }
@@ -249,36 +296,36 @@ client.on('interactionCreate', async (interaction) => {
           flags: 64,
         });
       } catch (error) {
-        console.error('Reply error in /checkpayment success:', error.message);
+        logger.error('Reply error in /checkpayment success:', error.message);
       }
     } catch (err) {
-      console.error(`🚫 Check payment error for ${email}: ${err.message}`);
+      logger.error(`🚫 Check payment error for ${email}: ${err.message}`);
       try {
         await interaction.reply({
           content: '⚠️ Error checking payment. Please try again or contact support.',
           flags: 64,
         });
       } catch (error) {
-        console.error('Reply error in /checkpayment catch:', error.message);
+        logger.error('Reply error in /checkpayment catch:', error.message);
       }
     }
   }
 });
 
 // Webhook handler setup
-app.use(express.raw({ type: 'application/json' })); // Raw body for Stripe
+app.use(express.raw({ type: 'application/json' }));
 app.get('/health', (req, res) => res.status(200).send('OK'));
 
 app.post('/webhook', async (req, res) => {
-  console.log('🌐 Webhook received at /webhook - Body length:', req.body.length);
+  logger.info('🌐 Webhook received at /webhook - Body length:', req.body.length);
   const sig = req.headers['stripe-signature'];
   if (!sig) {
-    console.error('🚨 No stripe-signature header value was provided.');
+    logger.error('🚨 No stripe-signature header value was provided.');
     return res.sendStatus(400);
   }
 
   if (!process.env.STRIPE_WEBHOOK_SECRET) {
-    console.error('🚨 STRIPE_WEBHOOK_SECRET is not defined in .env');
+    logger.error('🚨 STRIPE_WEBHOOK_SECRET is not defined in .env');
     return res.sendStatus(500);
   }
 
@@ -290,16 +337,16 @@ app.post('/webhook', async (req, res) => {
       process.env.STRIPE_WEBHOOK_SECRET
     );
   } catch (err) {
-    console.error(`🚨 Webhook signature verification failed: ${err.message}`);
+    logger.error(`🚨 Webhook signature verification failed: ${err.message}`);
     return res.sendStatus(400);
   }
 
   try {
-    console.log(`📬 Webhook received: ${event.type}`);
+    logger.info(`📬 Webhook received: ${event.type}`);
 
     const guild = client.guilds.cache.get(process.env.GUILD_ID);
     if (!guild) {
-      console.error('❌ Guild not found. Check GUILD_ID in .env');
+      logger.error('❌ Guild not found. Check GUILD_ID in .env');
       return res.sendStatus(400);
     }
 
@@ -307,28 +354,28 @@ app.post('/webhook', async (req, res) => {
     switch (event.type) {
       case 'checkout.session.completed': {
         const session = event.data.object;
-        console.log('🔍 Session object:', JSON.stringify(session, null, 2));
+        logger.info('🔍 Session object:', JSON.stringify(session, null, 2));
         email = session.customer_details?.email?.toLowerCase();
         if (!email && session.customer) {
           try {
             const customer = await stripe.customers.retrieve(session.customer);
             email = customer.email?.toLowerCase();
-            console.log(`📦 Fetched email from customer object: ${email}`);
+            logger.info(`📦 Fetched email from customer object: ${email}`);
           } catch (err) {
-            console.error('🚫 Failed to fetch customer email:', err.message);
+            logger.error('🚫 Failed to fetch customer email:', err.message);
           }
         }
 
         if (!email) {
-          console.error('⚠️ No email found in session or customer object');
+          logger.error('⚠️ No email found in session or customer object');
           return res.sendStatus(200);
         }
 
         // Separate one-time vs subscription
         if (session.mode === 'payment') {  // One-time payment
-          console.log(`ℹ️ One-time payment for ${email} - No subscription role granted`);
+          logger.info(`ℹ️ One-time payment for ${email} - No subscription role granted`);
         } else if (session.mode === 'subscription') {  // Recurring subscription
-          console.log(`💰 Subscription payment completed for: ${email}`);
+          logger.info(`💰 Subscription payment completed for: ${email}`);
           await assignRole(email, guild);
         }
         break;
@@ -341,18 +388,18 @@ app.post('/webhook', async (req, res) => {
           try {
             const customer = await stripe.customers.retrieve(invoice.customer);
             email = customer.email?.toLowerCase();
-            console.log(`📦 Fetched email from customer object: ${email}`);
+            logger.info(`📦 Fetched email from customer object: ${email}`);
           } catch (err) {
-            console.error('🚫 Failed to fetch customer email:', err.message);
+            logger.error('🚫 Failed to fetch customer email:', err.message);
           }
         }
 
         if (!email) {
-          console.error('⚠️ No email found in invoice or customer object');
+          logger.error('⚠️ No email found in invoice or customer object');
           return res.sendStatus(200);
         }
 
-        console.log(`💸 Recurring payment succeeded for: ${email}`);
+        logger.info(`💸 Recurring payment succeeded for: ${email}`);
         await assignRole(email, guild);
         break;
       }
@@ -366,29 +413,29 @@ app.post('/webhook', async (req, res) => {
           try {
             const customer = await stripe.customers.retrieve(data.customer);
             email = customer.email?.toLowerCase();
-            console.log(`📦 Fetched email from customer object: ${email}`);
+            logger.info(`📦 Fetched email from customer object: ${email}`);
           } catch (err) {
-            console.error('🚫 Failed to fetch customer email:', err.message);
+            logger.error('🚫 Failed to fetch customer email:', err.message);
           }
         }
 
         if (!email) {
-          console.error('⚠️ No email found in event data or customer object');
+          logger.error('⚠️ No email found in event data or customer object');
           return res.sendStatus(200);
         }
 
-        console.log(`${event.type === 'invoice.payment_failed' ? '❌ Payment failed' : event.type === 'payment_intent.payment_failed' ? '❌ Payment intent failed' : '🔻 Subscription canceled'} for: ${email}`);
+        logger.info(`${event.type === 'invoice.payment_failed' ? '❌ Payment failed' : event.type === 'payment_intent.payment_failed' ? '❌ Payment intent failed' : '🔻 Subscription canceled'} for: ${email}`);
         await handleFailedPayment(email, guild);
         break;
       }
 
       default:
-        console.log(`ℹ️ Unhandled event type: ${event.type}`);
+        logger.info(`ℹ️ Unhandled event type: ${event.type}`);
     }
 
     res.sendStatus(200);
   } catch (error) {
-    console.error('🚨 Webhook error:', error.message);
+    logger.error('🚨 Webhook error:', error.message);
     res.sendStatus(400);
   }
 });
@@ -398,7 +445,7 @@ async function assignRole(email, guild) {
   const user = await User.findOne({ email });
   const userId = user?.discordId;
   if (!userId) {
-    console.warn(`⚠️ No verified Discord user for email: ${email}`);
+    logger.warn(`⚠️ No verified Discord user for email: ${email}`);
     return;
   }
 
@@ -406,28 +453,28 @@ async function assignRole(email, guild) {
     const member = await guild.members.fetch(userId);
     const role = guild.roles.cache.get(process.env.ROLE_ID);
 
-    console.log(`👤 Target member: ${member?.user?.tag || 'Not found'}`);
-    console.log(`🎯 Found role: ${role?.name || 'Not found'}`);
+    logger.info(`👤 Target member: ${member?.user?.tag || 'Not found'}`);
+    logger.info(`🎯 Found role: ${role?.name || 'Not found'}`);
 
     if (!role) {
-      console.error('❌ Role not found. Check ROLE_ID in .env');
+      logger.error('❌ Role not found. Check ROLE_ID in .env');
       return;
     }
 
     if (!member) {
-      console.error('❌ Member not found in guild');
+      logger.error('❌ Member not found in guild');
       return;
     }
 
     if (member.roles.cache.has(role.id)) {
-      console.log(`ℹ️ ${member.user.tag} already has role ${role.name}`);
+      logger.info(`ℹ️ ${member.user.tag} already has role ${role.name}`);
       return;
     }
 
     await member.roles.add(role);
-    console.log(`✅ Added role '${role.name}' to ${member.user.tag}`);
+    logger.info(`✅ Added role '${role.name}' to ${member.user.tag}`);
   } catch (err) {
-    console.error(`🚫 Role assignment failed for ${email}: ${err.message}`);
+    logger.error(`🚫 Role assignment failed for ${email}: ${err.message}`);
   }
 }
 
@@ -436,7 +483,7 @@ async function handleFailedPayment(email, guild) {
   const user = await User.findOne({ email });
   const userId = user?.discordId;
   if (!userId) {
-    console.warn(`⚠️ No verified Discord user for email: ${email}`);
+    logger.warn(`⚠️ No verified Discord user for email: ${email}`);
     return;
   }
 
@@ -444,38 +491,38 @@ async function handleFailedPayment(email, guild) {
     const member = await guild.members.fetch(userId);
     const role = guild.roles.cache.get(process.env.ROLE_ID);
 
-    console.log(`👤 Target member: ${member?.user?.tag || 'Not found'}`);
-    console.log(`🎯 Found role: ${role?.name || 'Not found'}`);
+    logger.info(`👤 Target member: ${member?.user?.tag || 'Not found'}`);
+    logger.info(`🎯 Found role: ${role?.name || 'Not found'}`);
 
     if (!role) {
-      console.error('❌ Role not found. Check ROLE_ID in .env');
+      logger.error('❌ Role not found. Check ROLE_ID in .env');
       return;
     }
 
     if (!member) {
-      console.error('❌ Member not found in guild');
+      logger.error('❌ Member not found in guild');
       return;
     }
 
     if (!member.roles.cache.has(role.id)) {
-      console.log(`ℹ️ ${member.user.tag} does not have role ${role.name}`);
+      logger.info(`ℹ️ ${member.user.tag} does not have role ${role.name}`);
       return;
     }
 
     await member.roles.remove(role);
-    console.log(`✅ Removed role '${role.name}' from ${member.user.tag}`);
+    logger.info(`✅ Removed role '${role.name}' from ${member.user.tag}`);
 
     // Notify user via DM
     try {
       await member.send(
         `Your payment for ${email} failed or your subscription was canceled. Your Member role has been removed, and you've lost access to private channels. Update your payment method in Stripe and run /checkpayment to restore access.`
       );
-      console.log(`📩 Sent DM to ${member.user.tag} about role removal`);
+      logger.info(`📩 Sent DM to ${member.user.tag} about role removal`);
     } catch (err) {
-      console.error(`🚫 Failed to send DM to ${member.user.tag}: ${err.message}`);
+      logger.error(`🚫 Failed to send DM to ${member.user.tag}: ${err.message}`);
     }
   } catch (err) {
-    console.error(`🚫 Failed payment handling error for ${email}: ${err.message}`);
+    logger.error(`🚫 Failed payment handling error for ${email}: ${err.message}`);
   }
 }
 
@@ -484,7 +531,7 @@ async function removeRole(email, guild) {
   const user = await User.findOne({ email });
   const userId = user?.discordId;
   if (!userId) {
-    console.warn(`⚠️ No verified Discord user for email: ${email}`);
+    logger.warn(`⚠️ No verified Discord user for email: ${email}`);
     return;
   }
 
@@ -492,38 +539,39 @@ async function removeRole(email, guild) {
     const member = await guild.members.fetch(userId);
     const role = guild.roles.cache.get(process.env.ROLE_ID);
 
-    console.log(`👤 Target member: ${member?.user?.tag || 'Not found'}`);
-    console.log(`🎯 Found role: ${role?.name || 'Not found'}`);
+    logger.info(`👤 Target member: ${member?.user?.tag || 'Not found'}`);
+    logger.info(`🎯 Found role: ${role?.name || 'Not found'}`);
 
     if (!role) {
-      console.error('❌ Role not found. Check ROLE_ID in .env');
+      logger.error('❌ Role not found. Check ROLE_ID in .env');
       return;
     }
 
     if (!member) {
-      console.error('❌ Member not found in guild');
+      logger.error('❌ Member not found in guild');
       return;
     }
 
     if (!member.roles.cache.has(role.id)) {
-      console.log(`ℹ️ ${member.user.tag} does not have role ${role.name}`);
+      logger.info(`ℹ️ ${member.user.tag} does not have role ${role.name}`);
       return;
     }
 
     await member.roles.remove(role);
-    console.log(`✅ Removed role '${role.name}' from ${member.user.tag}`);
+    logger.info(`✅ Removed role '${role.name}' from ${member.user.tag}`);
   } catch (err) {
-    console.error(`🚫 Role removal failed for ${email}: ${err.message}`);
+    logger.error(`🚫 Role removal failed for ${email}: ${err.message}`);
   }
 }
 
 client.login(process.env.DISCORD_TOKEN).catch((error) => {
-  console.error('🚫 Discord login error:', error.message);
+  logger.error('🚫 Discord login error:', error.message);
+  sendAlert('Discord Login Failed', `Error: ${error.message}`);
 });
 
-const PORT = process.env.PORT || 10000;  // Render default
+const PORT = process.env.PORT || 10000; // Render default
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Webhook server running on port ${PORT}`);
+  logger.info(`🚀 Webhook server running on port ${PORT}`);
 });
 
 // Add backup endpoint
