@@ -1,0 +1,4 @@
+{"level":"info","message":"🚀 Webhook server running on port 3000","timestamp":"2025-09-18T18:13:44.881Z"}
+{"level":"info","message":"✅ Logged in as GateKeeperX#7597","timestamp":"2025-09-18T18:13:45.888Z"}
+{"level":"info","message":"📎 /verify, /unverify, and /checkpayment commands registered","timestamp":"2025-09-18T18:13:45.889Z"}
+{"level":"error","message":"🚫 MongoDB connection error:","timestamp":"2025-09-18T18:14:14.943Z"}
