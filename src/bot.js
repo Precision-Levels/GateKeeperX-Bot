@@ -57,6 +57,9 @@ const mongoose = require('mongoose');
 const fs = require('fs').promises;
 const app = express();
 
+// Middleware to capture raw body for Stripe webhook
+app.use(express.raw({ type: 'application/json' }));
+
 mongoose.connect(process.env.MONGODB_URI).then(() => {
   logger.info('✅ Connected to MongoDB');
 }).catch((err) => {
@@ -313,11 +316,23 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // Webhook handler setup
-app.use(express.raw({ type: 'application/json' }));
-app.get('/health', (req, res) => res.status(200).send('OK'));
+app.get('/health', async (req, res) => {
+  const mongoConnected = mongoose.connection.readyState === 1;
+  const discordReady = client?.user?.id ? true : false;
+
+  const status = {
+    mongo: mongoConnected ? '✅ Connected' : '❌ Disconnected',
+    discord: discordReady ? `✅ Logged in as ${client.user.tag}` : '❌ Not logged in',
+    timestamp: new Date().toISOString(),
+  };
+
+  logger.info(`🏥 Health check: ${JSON.stringify(status)}`);
+  const allHealthy = mongoConnected && discordReady;
+  res.status(allHealthy ? 200 : 500).json(status);
+});
 
 app.post('/webhook', async (req, res) => {
-  logger.info('🌐 Webhook received at /webhook - Body length:', req.body.length);
+  logger.info(`🌐 Webhook received at /webhook - Body length: ${req.body.length}`);
   const sig = req.headers['stripe-signature'];
   if (!sig) {
     logger.error('🚨 No stripe-signature header value was provided.');
