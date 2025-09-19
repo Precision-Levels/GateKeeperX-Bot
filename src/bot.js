@@ -60,7 +60,7 @@ const app = express();
 // Middleware to capture raw body for Stripe webhook
 app.use(express.raw({ type: 'application/json' }));
 
-mongoose.connect(process.env.MONGODB_URI + '/verifiedUsers').then(() => {
+mongoose.connect(process.env.MONGODB_URI, { dbName: 'verifiedUsers' }).then(() => {
   logger.info('✅ Connected to MongoDB');
 }).catch((err) => {
   logger.error('🚫 MongoDB connection error:', err.message);
