@@ -60,7 +60,7 @@ const app = express();
 // Middleware to capture raw body for Stripe webhook
 app.use(express.raw({ type: 'application/json' }));
 
-mongoose.connect(process.env.MONGODB_URI).then(() => {
+mongoose.connect(process.env.MONGODB_URI + '/verifiedUsers').then(() => {
   logger.info('✅ Connected to MongoDB');
 }).catch((err) => {
   logger.error('🚫 MongoDB connection error:', err.message);
@@ -93,6 +93,7 @@ async function saveVerifiedUsers() {
   for (const [email, discordId] of Object.entries(verifiedUsers)) {
     await User.updateOne({ email }, { $set: { discordId } }, { upsert: true });
   }
+  logger.info(`Syncing to MongoDB database: ${mongoose.connection.db.databaseName}`);
 }
 
 const client = new Client({
